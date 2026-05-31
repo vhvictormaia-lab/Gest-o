@@ -1209,7 +1209,7 @@ function gerarQRBase64(texto) {
           if(document.body.contains(div)) document.body.removeChild(div);
           resolve('');
         }
-      }, 200);
+      }, 300);
     } catch(e) {
       resolve('');
     }
@@ -1285,6 +1285,8 @@ async function gerarPDFEtiquetas(cliente, resp, mat, dataStr, hoje) {
 
     const codigo = gerarCodigo(cliente, p.pos, p.alt, p.larg, i);
     const qrB64 = await gerarQRBase64(codigo);
+    // pequena pausa pra não travar o navegador
+    await new Promise(r => setTimeout(r, 50));
 
     // ── FUNDO BRANCO + BORDA ──
     doc.setFillColor(255,255,255);
@@ -1450,14 +1452,22 @@ if('serviceWorker' in navigator) {
 }
 
 // ── SPLASH ──────────────────────────────────
+function esconderSplash() {
+  const splash = document.getElementById('splash-screen');
+  if(splash) {
+    splash.classList.add('hiding');
+    setTimeout(() => { splash.style.display = 'none'; }, 400);
+  }
+}
+
+// Esconde após 2.4s normalmente
 window.addEventListener('load', () => {
-  setTimeout(() => {
-    const splash = document.getElementById('splash-screen');
-    if(splash) {
-      splash.classList.add('hiding');
-      setTimeout(() => splash.style.display = 'none', 400);
-    }
-  }, 2400);
+  setTimeout(esconderSplash, 2400);
 });
 
-renderAll();
+// Safety: força esconder após 4s caso algo trave
+setTimeout(esconderSplash, 4000);
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderAll();
+});
