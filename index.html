@@ -1181,22 +1181,32 @@ function showToast(msg,type='green'){
 // Gera QR code como base64 usando canvas
 function gerarQRBase64(texto) {
   return new Promise(resolve => {
-    const div = document.createElement('div');
-    div.style.display = 'none';
-    document.body.appendChild(div);
-    const qr = new QRCode(div, {
-      text: texto, width: 80, height: 80,
-      colorDark: '#0D2B5A', colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
-    });
-    setTimeout(() => {
-      const img = div.querySelector('img') || div.querySelector('canvas');
-      let b64 = '';
-      if(img && img.tagName === 'IMG') b64 = img.src;
-      else if(img && img.tagName === 'CANVAS') b64 = img.toDataURL('image/png');
-      document.body.removeChild(div);
-      resolve(b64);
-    }, 100);
+    try {
+      const div = document.createElement('div');
+      div.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:100px;height:100px;';
+      document.body.appendChild(div);
+      new QRCode(div, {
+        text: texto, width: 100, height: 100,
+        colorDark: '#0D2B5A', colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+      setTimeout(() => {
+        try {
+          const canvas = div.querySelector('canvas');
+          const img = div.querySelector('img');
+          let b64 = '';
+          if(canvas) b64 = canvas.toDataURL('image/png');
+          else if(img) b64 = img.src;
+          document.body.removeChild(div);
+          resolve(b64);
+        } catch(e) {
+          if(document.body.contains(div)) document.body.removeChild(div);
+          resolve('');
+        }
+      }, 200);
+    } catch(e) {
+      resolve('');
+    }
   });
 }
 
@@ -1223,111 +1233,141 @@ async function gerarPDF() {
   // PDF 2 — Etiquetas (só se tiver peças)
   if(pecas.length) {
     showToast('⏳ Gerando etiquetas...', 'blue');
-    await gerarPDFEtiquetas(cliente, resp, mat, dataStr, hoje);
+    // aguarda 800ms pra não conflitar com o primeiro download
+    await new Promise(r => setTimeout(r, 800));
+    try {
+      await gerarPDFEtiquetas(cliente, resp, mat, dataStr, hoje);
+      showToast('✓ PDF e Etiquetas gerados!', 'green');
+    } catch(e) {
+      console.error('Erro etiquetas:', e);
+      showToast('✓ PDF gerado! Erro nas etiquetas.', 'green');
+    }
+  } else {
+    showToast('✓ PDF gerado com sucesso!', 'green');
   }
-
-  showToast('✓ PDF e Etiquetas gerados!', 'green');
 }
 
 async function gerarPDFEtiquetas(cliente, resp, mat, dataStr, hoje) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit:'mm', format:'a4' });
   const W=210, H=297;
-  const cols=2, rows=3; // 6 etiquetas por página
-  const padX=8, padY=8;
-  const eW=(W-padX*3)/cols;   // largura etiqueta
-  const eH=(H-padY*4)/rows;   // altura etiqueta
+  const cols=2, rows=3;
+  const padX=10, padY=10;
+  const gapX=6, gapY=6;
+  const eW=(W - padX*2 - gapX) / cols;
+  const eH=(H - padY*2 - gapY*2) / rows;
   const total = pecas.length;
 
   for(let i=0; i<total; i++) {
     const p = pecas[i];
     const col = i % cols;
     const row = Math.floor((i % (cols*rows)) / cols);
-    const page = Math.floor(i / (cols*rows));
 
     if(i > 0 && i % (cols*rows) === 0) doc.addPage();
 
-    const x = padX + col * (eW + padX);
-    const y = padY + row * (eH + padY);
+    const x = padX + col * (eW + gapX);
+    const y = padY + row * (eH + gapY);
 
-    // Código único
     const codigo = gerarCodigo(cliente, p.pos, p.alt, p.larg, i);
-
-    // Gera QR
     const qrB64 = await gerarQRBase64(codigo);
 
-    // ── ETIQUETA ──
-    // Borda
+    // ── FUNDO BRANCO + BORDA ──
     doc.setFillColor(255,255,255);
     doc.setDrawColor(13,43,90);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(x, y, eW, eH, 2, 2, 'FD');
+    doc.setLineWidth(0.6);
+    doc.roundedRect(x, y, eW, eH, 3, 3, 'FD');
 
-    // Header azul
+    // ── HEADER AZUL ──
     doc.setFillColor(13,43,90);
-    doc.roundedRect(x, y, eW, 10, 2, 2, 'F');
-    doc.rect(x, y+6, eW, 4, 'F'); // quadrado embaixo pra cobrir cantos arredondados
-    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(255,255,255);
-    doc.text('NOBRE GESTÃO', x+4, y+6.5);
-    // badge material
+    doc.roundedRect(x, y, eW, 12, 3, 3, 'F');
+    doc.rect(x, y+8, eW, 4, 'F');
+
+    // Título
+    doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.setTextColor(255,255,255);
+    doc.text('NOBRE GESTÃO', x+5, y+7.5);
+
+    // Badge material
     doc.setFillColor(232,119,34);
-    doc.roundedRect(x+eW-22, y+2, 20, 6, 1, 1, 'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(6); doc.setTextColor(255,255,255);
-    doc.text(mat.toUpperCase(), x+eW-12, y+6.3, {align:'center'});
+    doc.roundedRect(x+eW-24, y+3, 22, 7, 1, 1, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
+    doc.setTextColor(255,255,255);
+    doc.text(mat.toUpperCase(), x+eW-13, y+8, {align:'center'});
+
+    // ── CORPO ──
+    let cy = y + 18;
 
     // Contador
-    doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(107,114,128);
-    doc.text(`${i+1} / ${total}`, x+eW-4, y+16, {align:'right'});
+    doc.setFont('helvetica','bold'); doc.setFontSize(7);
+    doc.setTextColor(107,114,128);
+    doc.text(`${i+1} / ${total}`, x+eW-5, cy, {align:'right'});
 
     // Obra
-    doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(13,43,90);
-    doc.text('OBRA:', x+4, y+16);
-    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(26,26,46);
-    const obraStr = cliente.length>22 ? cliente.slice(0,21)+'…' : cliente;
-    doc.text(obraStr, x+16, y+16);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7);
+    doc.setTextColor(13,43,90);
+    doc.text('OBRA:', x+5, cy);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7);
+    doc.setTextColor(26,26,46);
+    const obraStr = cliente.length>20 ? cliente.slice(0,19)+'…' : cliente;
+    doc.text(obraStr, x+19, cy);
+    cy += 7;
 
     // Posição (só PVC)
     if(mat==='PVC' && p.pos !== '—') {
-      doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(13,43,90);
-      doc.text('POS:', x+4, y+22);
-      doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(232,119,34);
-      doc.text(p.pos, x+16, y+22);
+      doc.setFont('helvetica','bold'); doc.setFontSize(7);
+      doc.setTextColor(13,43,90);
+      doc.text('POS:', x+5, cy);
+      doc.setFont('helvetica','bold'); doc.setFontSize(7);
+      doc.setTextColor(232,119,34);
+      doc.text(p.pos, x+19, cy);
+      cy += 7;
     }
-
-    // Medidas — grande e legível
-    doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(13,43,90);
-    doc.text(`${p.alt} × ${p.larg}`, x+4, y+33);
-    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(107,114,128);
-    doc.text('altura × largura (mm)', x+4, y+38);
 
     // Linha divisória
     doc.setDrawColor(221,229,240); doc.setLineWidth(0.3);
-    doc.line(x+4, y+41, x+eW-4, y+41);
+    doc.line(x+5, cy-2, x+eW-5, cy-2);
+
+    // Medidas — fonte grande!
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.setTextColor(13,43,90);
+    doc.text(`${p.alt} × ${p.larg}`, x+5, cy+8);
+    doc.setFont('helvetica','normal'); doc.setFontSize(6);
+    doc.setTextColor(107,114,128);
+    doc.text('altura × largura (mm)', x+5, cy+13);
+    cy += 17;
+
+    // Linha divisória
+    doc.setDrawColor(221,229,240); doc.setLineWidth(0.3);
+    doc.line(x+5, cy-1, x+eW-5, cy-1);
+    cy += 4;
 
     // Tipo e espessura
-    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(26,26,46);
-    doc.text(`${p.tipo}  •  ${p.esp}`, x+4, y+47);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.setTextColor(26,26,46);
+    doc.text(`${p.tipo}  •  ${p.esp}`, x+5, cy);
+    cy += 7;
 
-    // Data
-    doc.setFont('helvetica','normal'); doc.setFontSize(6); doc.setTextColor(107,114,128);
-    doc.text(dataStr, x+4, y+53);
-
-    // Frágil
-    doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(192,57,43);
-    doc.text('⚠ FRÁGIL', x+eW-4, y+53, {align:'right'});
+    // Data + Frágil
+    doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
+    doc.setTextColor(107,114,128);
+    doc.text(dataStr, x+5, cy);
+    doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
+    doc.setTextColor(192,57,43);
+    doc.text('⚠ FRÁGIL', x+eW-5, cy, {align:'right'});
 
     // QR Code
     if(qrB64) {
-      doc.addImage(qrB64, 'PNG', x+eW-24, y+28, 20, 20);
+      const qrSize = 22;
+      doc.addImage(qrB64, 'PNG', x+eW-qrSize-5, y+eH-qrSize-8, qrSize, qrSize);
     }
 
-    // Código (pequenininho embaixo)
-    doc.setFont('helvetica','normal'); doc.setFontSize(4.5); doc.setTextColor(180,180,180);
+    // Código único (rodapé)
+    doc.setFont('helvetica','normal'); doc.setFontSize(4);
+    doc.setTextColor(200,200,200);
     doc.text(codigo, x+eW/2, y+eH-2, {align:'center'});
   }
 
-  const nomeArq = `Etiquetas_${cliente.replace(/[^a-zA-Z0-9]/g,'_')}.pdf`;
-  doc.save(nomeArq);
+  doc.save(`Etiquetas_${cliente.replace(/[^a-zA-Z0-9]/g,'_')}.pdf`);
 }
 
 document.querySelectorAll('input').forEach(el=>el.addEventListener('input',()=>el.classList.remove('error')));
