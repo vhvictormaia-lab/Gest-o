@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nobre-vidros-v3';
+const CACHE_NAME = 'nobre-vidros-v99';
 const ASSETS = [
   './index.html',
   './manifest.json',
